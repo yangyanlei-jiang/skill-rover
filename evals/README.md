@@ -12,4 +12,3 @@ Primary metrics: task completion, invocation/selection accuracy, false-positive 
 Initial baseline: a fresh-context agent evaluated six scenarios before the skill was authored. It already retained the first-load deadline, protected active/user-owned installations, inspected task fit, skipped skills for a simple fact, rejected a failed candidate and honored explicit-only invocation. Thus these checks do not demonstrate an improvement over native model behavior. The concrete v0.1 addition is the executable managed-lifecycle protocol.
 
 See report.md for recorded validation. The 30-case dataset is a regression plan, not a claim that every scenario has run on every platform.
-

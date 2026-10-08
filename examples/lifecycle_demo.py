@@ -40,4 +40,3 @@ with tempfile.TemporaryDirectory(prefix="skill-rover-demo-") as directory:
     print(json.dumps({"first_review_due_at": 86500, "reload_did_not_reset_deadline": True,
                       "new_skill": result["active"]["name"], "old_owned_copy_archived": True,
                       "original_source_preserved": True}))
-

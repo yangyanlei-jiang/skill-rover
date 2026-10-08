@@ -69,7 +69,6 @@ Files: SKILL.md, references/lifecycle.md, references/discovery.md, agents/openai
 - [x] Define 30 concrete cases and acceptable outcomes; run with-skill independent behavior checks.
 - [x] Run format validation, all tests and end-to-end lifecycle walkthrough.
 - [x] Obtain independent code review; fix meaningful findings with regression tests.
-- [ ] Create public yangyanlei-jiang/skill-rover, push verified commits, run CI and check the repository URL/visibility.
+- [x] Create public yangyanlei-jiang/skill-rover, push verified commits, run CI and check the repository URL/visibility.
 
 Completion: a usable public source repository, truthful test/evaluation record, and documented exact limits of host-driven timers and context retirement.
-

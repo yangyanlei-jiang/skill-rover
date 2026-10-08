@@ -8,7 +8,7 @@ Date: 2026-10-08. These are observed results, not a claim that SkillRover always
 - The skill-creator frontmatter validator accepted the root skill.
 - The lifecycle example verified the first-load deadline, repeated-load stability, successful replacement, owned-copy archival and original-source preservation.
 - An independent review exercised 20 concurrent CLI loads and observed all usage records retained. Reported defects were fixed with regression tests: copied-snapshot metadata, source identity, bounded regular-file reads, archive executable permissions, target-project state defaults, hook argument handling, and interrupted retirement recovery. A follow-up case verifies that a damaged retired bundle cannot block unrelated releases.
-- GitHub Actions runs the suite and lifecycle example on Linux/macOS with Python 3.10/3.13. Check the [live workflow results](https://github.com/yangyanlei-jiang/skill-rover/actions/workflows/tests.yml) for the current commit.
+- GitHub Actions passed all four Linux/macOS × Python 3.10/3.13 combinations for implementation commit `12b1194`: [verified run](https://github.com/yangyanlei-jiang/skill-rover/actions/runs/37725194423). Each job ran the 43 tests and lifecycle example. Check the [live workflow results](https://github.com/yangyanlei-jiang/skill-rover/actions/workflows/tests.yml) for later commits.
 
 ## Actual public discovery
 

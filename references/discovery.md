@@ -32,4 +32,3 @@ Inspect the entire selected skill and relevant executable/supporting resources. 
 No script is executed while searching, fetching or copying a bundle. Traversal, symlinks, special files, duplicate archive entries and oversized bundles are rejected.
 
 After inspection and authorization, install the fetched directory using --reviewed and record the fetch result's --origin and --revision. A failed search/download leaves the current choice and any pending review intact. Report rate limits or network failures explicitly; do not invent candidates.
-
