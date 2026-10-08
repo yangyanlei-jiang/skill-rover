@@ -102,6 +102,7 @@ def extract_skill(data, subdirectory, destination):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with archive.open(info) as incoming, target.open("xb") as outgoing:
                     shutil.copyfileobj(incoming, outgoing)
+                target.chmod(0o755 if (info.external_attr >> 16) & 0o111 else 0o644)
             if not (staging / "SKILL.md").is_file():
                 raise ValueError("selected directory does not contain SKILL.md")
             record = read_skill(staging)

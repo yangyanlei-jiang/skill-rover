@@ -55,18 +55,18 @@ def install(store, source, origin=None, revision=None, review_seconds=DEFAULT_RE
     if isinstance(review_seconds, bool) or not isinstance(review_seconds, (float, int)) or not math.isfinite(review_seconds) or review_seconds <= 0:
         raise ValueError("review interval must be positive and finite")
     source = Path(source).expanduser().resolve()
-    info = read_skill(source)
-    if info["name"] == "skill-rover":
-        raise ValueError("the router cannot be managed as its own candidate")
     digest = bundle_digest(source)
+    source_identity = origin or str(source)
+    cleanup(store)
     with store.transaction() as state:
         for existing in state["entries"].values():
-            if existing["digest"] == digest and existing["status"] != "retired":
+            if (existing["digest"] == digest and existing["source"] == source_identity
+                    and existing["revision"] == revision and existing["status"] != "retired"):
                 _checked(store, state, existing["id"])
                 return dict(existing)
         identity = uuid.uuid4().hex
-        record = {"id": identity, "name": info["name"], "digest": digest,
-                  "owned": True, "implicit": info["implicit"], "source": origin or str(source),
+        record = {"id": identity, "digest": digest,
+                  "owned": True, "source": source_identity,
                   "revision": revision, "installed_at": now, "loaded_at": None,
                   "reviewed_at": None, "review_seconds": review_seconds,
                   "status": "installed", "review_reason": None}
@@ -76,8 +76,12 @@ def install(store, source, origin=None, revision=None, review_seconds=DEFAULT_RE
             raise ValueError("source cannot contain the managed store")
         try:
             shutil.copytree(source, target, ignore=shutil.ignore_patterns(*SKIP), symlinks=True)
+            info = read_skill(target)
             if bundle_digest(target) != digest:
                 raise ValueError("source changed during installation")
+            if info["name"] == "skill-rover":
+                raise ValueError("the router cannot be managed as its own candidate")
+            record.update(name=info["name"], implicit=info["implicit"])
             state["entries"][identity] = record
             state["history"].append({"action": "install", "id": identity, "at": now})
         except Exception:
@@ -88,6 +92,7 @@ def install(store, source, origin=None, revision=None, review_seconds=DEFAULT_RE
 
 def load(store, identity, session, explicit=False, now=None):
     now, session = _now(now), _text(session, "session")
+    cleanup(store)
     with store.transaction() as state:
         record = _checked(store, state, identity)
         if not record["implicit"] and not explicit:
@@ -101,6 +106,7 @@ def load(store, identity, session, explicit=False, now=None):
 
 def release(store, session, identity=None):
     session = _text(session, "session")
+    cleanup(store)
     with store.transaction() as state:
         if identity is None:
             state["uses"].pop(session, None)
@@ -124,10 +130,12 @@ def due_records(state, now):
     return sorted(result, key=lambda r: (r["due_at"], r["id"]))
 
 def due(store, now=None):
+    cleanup(store)
     return due_records(store.read(), _now(now))
 
 def mark_due(store, identity, reason, now=None):
     now, reason = _now(now), _text(reason, "reason")
+    cleanup(store)
     with store.transaction() as state:
         record = _checked(store, state, identity)
         if record["loaded_at"] is None:
@@ -138,6 +146,7 @@ def mark_due(store, identity, reason, now=None):
 
 def keep(store, identity, reason, now=None):
     now, reason = _now(now), _text(reason, "reason")
+    cleanup(store)
     with store.transaction() as state:
         record = _checked(store, state, identity)
         if record["loaded_at"] is None:
@@ -172,26 +181,27 @@ def cleanup(store):
             _entry(state, identity)
             if record["status"] != "retired" or record.get("owned") is not True:
                 continue
-            source = package_path(store, record)
-            target = package_path(store, record, "archive")
-            if source.exists():
-                if bundle_digest(source) != record["digest"]:
-                    pending.append({"id": identity, "error": "retired bundle changed; preserved"})
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                if target.exists():
-                    pending.append({"id": identity, "error": "archive destination already exists; preserved"})
-                    continue
-                try:
+            try:
+                source = package_path(store, record)
+                target = package_path(store, record, "archive")
+                if source.exists():
+                    if bundle_digest(source) != record["digest"]:
+                        pending.append({"id": identity, "error": "retired bundle changed; preserved"})
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists():
+                        pending.append({"id": identity, "error": "archive destination already exists; preserved"})
+                        continue
                     os.replace(source, target)
-                except OSError as exc:
-                    pending.append({"id": identity, "error": str(exc)})
+            except (OSError, ValueError) as exc:
+                pending.append({"id": identity, "error": str(exc) + "; preserved"})
     return pending
 
 def replace(store, old_id, candidate_id, evidence, explicit=False, now=None):
     now = _now(now)
     if old_id == candidate_id:
         raise ValueError("replacement must be a different candidate")
+    cleanup(store)
     with store.transaction() as state:
         old, candidate = _checked(store, state, old_id), _checked(store, state, candidate_id)
         if any(old_id in ids for ids in state["uses"].values()):
@@ -207,4 +217,3 @@ def replace(store, old_id, candidate_id, evidence, explicit=False, now=None):
                                  "at": now, "evidence": evidence})
         active = dict(candidate)
     return {"active": active, "retired": old_id, "cleanup_pending": cleanup(store)}
-

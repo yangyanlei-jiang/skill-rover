@@ -40,6 +40,13 @@ class CliTests(Fixture):
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue((source / "SKILL.md").is_file())
 
+    def test_integrate_defaults_state_to_target_project_not_callers_directory(self):
+        project = self.base / "target"
+        result = subprocess.run([sys.executable, str(CLI), "integrate", "--project", str(project), "--host", "codex"],
+                                cwd=self.base, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)[0]["state_dir"], str(project / ".skill-rover"))
+
 class IntegrationTests(Fixture):
     def setUp(self):
         super().setUp()
@@ -81,6 +88,35 @@ class IntegrationTests(Fixture):
         self.assertEqual(result, {})
         self.assertEqual(self.store.read()["uses"], {})
 
+    def test_claude_hook_exec_form_handles_literal_paths_and_codex_end_timeout(self):
+        project = self.base / "project with $literal spaces"
+        self.integration.integrate(project, "claude", self.store.root, ROUTER)
+        config = json.loads((project / ".claude" / "settings.json").read_text())
+        handler = config["hooks"]["SessionStart"][0]["hooks"][0]
+        self.assertIn("args", handler)
+        result = subprocess.run([handler["command"], *handler["args"]],
+                                input=json.dumps({"hook_event_name": "SessionStart", "session_id": "exec-smoke"}),
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("exec-smoke", json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"])
+        self.integration.integrate(project, "codex", self.store.root, ROUTER)
+        config = json.loads((project / ".codex" / "hooks.json").read_text())
+        handler = config["hooks"]["SessionEnd"][0]["hooks"][0]
+        self.assertLessEqual(handler["timeout"], 3)
+        self.assertIn("-EncodedCommand", handler["commandWindows"])
+
+    def test_session_start_exposes_actual_session_and_state_for_load_tracking(self):
+        result = self.integration.hook({"session_id": "actual-session-id", "hook_event_name": "SessionStart"}, self.store, now=10)
+        context = result["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("actual-session-id", context)
+        self.assertIn(str(self.store.root), context)
+
+    def test_custom_state_due_reminder_identifies_its_state(self):
+        a = self.life.install(self.store, self.skill(), review_seconds=1, now=0)
+        self.life.load(self.store, a["id"], "s", now=1)
+        result = self.integration.hook({"session_id": "s", "hook_event_name": "PostToolUse"}, self.store, now=3)
+        self.assertIn(str(self.store.root), result["hookSpecificOutput"]["additionalContext"])
+
     def test_no_due_event_stays_quiet_and_unknown_event_ignored(self):
         self.assertEqual(self.integration.hook({"session_id": "s", "hook_event_name": "PostToolUse"}, self.store, now=100), {})
         self.assertEqual(self.integration.hook({"session_id": "s", "hook_event_name": "Unknown"}, self.store, now=100), {})
@@ -93,4 +129,3 @@ class IntegrationTests(Fixture):
         with self.assertRaises(ValueError):
             self.integration.integrate(project, "codex", self.store.root, ROUTER)
         self.assertEqual((target / "keep").read_text(), "user")
-

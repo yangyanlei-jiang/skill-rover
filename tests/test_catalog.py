@@ -1,3 +1,7 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
 from common import Fixture
 
 class CatalogTests(Fixture):
@@ -46,3 +50,19 @@ class CatalogTests(Fixture):
         with self.assertRaises(ValueError):
             catalog.bundle_digest(a)
 
+    def test_fifo_manifest_is_rejected_without_blocking(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("FIFO is POSIX-specific")
+        source = self.base / "pipe-skill"
+        source.mkdir()
+        os.mkfifo(source / "SKILL.md")
+        scripts = Path(__file__).resolve().parents[1] / "scripts"
+        code = "from skill_rover.catalog import scan; import json,sys; print(json.dumps(scan([sys.argv[1]])))"
+        try:
+            result = subprocess.run([sys.executable, "-c", code, str(source)],
+                                    env={**os.environ, "PYTHONPATH": str(scripts)},
+                                    capture_output=True, text=True, timeout=2)
+        except subprocess.TimeoutExpired:
+            self.fail("FIFO manifest blocked the scanner")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("regular file", result.stdout)

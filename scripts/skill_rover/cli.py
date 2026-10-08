@@ -12,7 +12,7 @@ from .store import Store
 def parser():
     p = argparse.ArgumentParser(description="SkillRover: discover skills and manage safe reassessment.")
     p.add_argument("--version", action="version", version=__version__)
-    p.add_argument("--state-dir", default=".skill-rover", help="persistent state directory (default: project .skill-rover)")
+    p.add_argument("--state-dir", help="persistent state directory (default: target project for integrate, current directory otherwise)")
     commands = p.add_subparsers(dest="command", required=True)
     c = commands.add_parser("scan", help="inspect metadata without loading instructions")
     c.add_argument("roots", nargs="+")
@@ -58,7 +58,8 @@ def parser():
     return p
 
 def dispatch(a):
-    store = Store(a.state_dir)
+    default_state = Path(a.project) / ".skill-rover" if a.command == "integrate" else Path(".skill-rover")
+    store = Store(a.state_dir or default_state)
     if a.command == "scan":
         return scan(a.roots)
     if a.command == "search":
@@ -76,7 +77,8 @@ def dispatch(a):
     if a.command == "due":
         return lifecycle.due(store)
     if a.command == "status":
-        return store.read()
+        pending = lifecycle.cleanup(store)
+        return {**store.read(), "cleanup_pending": pending}
     if a.command == "cleanup":
         return lifecycle.cleanup(store)
     if a.command == "mark-due":
@@ -109,4 +111,3 @@ def main():
         return 1
     print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
     return 0
-

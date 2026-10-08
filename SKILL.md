@@ -2,7 +2,6 @@
 name: skill-rover
 description: Use when a task needs a specialized workflow and the best skill is unclear, several skills overlap, an installed skill lacks a needed capability, or a previously loaded skill is due for reassessment. Also use when the user asks to discover, compare, or replace agent skills.
 license: MIT
-compatibility: Core instructions work with Agent Skills hosts. Optional helpers require Python 3.10+ and PyYAML 6; external discovery requires network access.
 ---
 
 # SkillRover
@@ -24,6 +23,7 @@ For managed skills, use the helpers described in [lifecycle](references/lifecycl
 - Verify the replacement, finish current uses, release session usage, then switch. The helper retires and archives only its owned old copy. Preserve unmanaged installations. Retired instructions remain in chat history: stop using them for subsequent work rather than claiming context was erased.
 
 ## Helper entry point
+Core instructions work with Agent Skills hosts. Helpers require Python 3.10+ and PyYAML 6; external discovery requires network access.
 Resolve `scripts/rover.py` relative to this skill's directory. Run it with the Python interpreter used for setup; all results are JSON. Use `--help` for the full CLI. Keep one absolute `--state-dir` per project and pass the real host session id to load/release. If unavailable, generate a unique id for this conversation and use it consistently.
 
 ```text
@@ -33,4 +33,3 @@ python /absolute/skill-rover/scripts/rover.py --state-dir /project/.skill-rover 
 `load` returns a managed skill's instructions and records usage. Release only after its task has ended, including failed tasks. Files discovered in a user's directories remain unmanaged until an authorized reviewed copy is installed.
 
 For project installation and automatic checks, read [integration](references/integration.md). Briefly report the selected skill and any material replacement reason; keep routine decisions concise.
-

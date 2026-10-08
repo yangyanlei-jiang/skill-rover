@@ -2,6 +2,8 @@
 import hashlib
 import os
 import re
+import stat
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
@@ -11,10 +13,26 @@ MAX_BUNDLE = 16 * 1024 * 1024
 MAX_FILES = 2000
 SKIP = {".git", ".skill-rover", ".venv", "node_modules", "__pycache__"}
 
-def _yaml(path):
-    data = Path(path).read_bytes()
+@contextmanager
+def regular_file(path):
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError("metadata and resources must be a regular file")
+        yield stream
+
+def _metadata_bytes(path):
+    with regular_file(path) as stream:
+        if os.fstat(stream.fileno()).st_size > MAX_MANIFEST:
+            raise ValueError("metadata exceeds 64 KiB")
+        data = stream.read(MAX_MANIFEST + 1)
     if len(data) > MAX_MANIFEST:
         raise ValueError("metadata exceeds 64 KiB")
+    return data
+
+def _yaml(path):
+    data = _metadata_bytes(path)
     try:
         return yaml.safe_load(data.decode("utf-8"))
     except (yaml.YAMLError, UnicodeError) as exc:
@@ -23,9 +41,7 @@ def _yaml(path):
 def read_skill(path):
     root = Path(path).expanduser().resolve()
     manifest = root if root.name == "SKILL.md" else root / "SKILL.md"
-    raw = manifest.read_bytes()
-    if len(raw) > MAX_MANIFEST:
-        raise ValueError("SKILL.md exceeds 64 KiB")
+    raw = _metadata_bytes(manifest)
     text = raw.decode("utf-8")
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
@@ -109,19 +125,22 @@ def bundle_digest(root):
         dirs[:] = sorted(d for d in dirs if d not in SKIP)
         for name in sorted(files):
             file = current / name
-            if not file.is_file():
-                raise ValueError("bundle contains a non-regular file")
             count += 1
-            file_size = file.stat().st_size
-            size += file_size
-            if count > MAX_FILES or size > MAX_BUNDLE:
-                raise ValueError("bundle size or file-count limit exceeded")
-            relative = file.relative_to(root).as_posix().encode("utf-8")
-            digest.update(len(relative).to_bytes(4, "big"))
-            digest.update(relative)
-            digest.update(file_size.to_bytes(8, "big"))
-            with file.open("rb") as stream:
-                for chunk in iter(lambda: stream.read(65536), b""):
+            with regular_file(file) as stream:
+                file_size = os.fstat(stream.fileno()).st_size
+                if count > MAX_FILES or size + file_size > MAX_BUNDLE:
+                    raise ValueError("bundle size or file-count limit exceeded")
+                relative = file.relative_to(root).as_posix().encode("utf-8")
+                digest.update(len(relative).to_bytes(4, "big"))
+                digest.update(relative)
+                digest.update(file_size.to_bytes(8, "big"))
+                actual_size = 0
+                for chunk in iter(lambda: stream.read(min(65536, MAX_BUNDLE - size + 1)), b""):
+                    size += len(chunk)
+                    actual_size += len(chunk)
+                    if size > MAX_BUNDLE:
+                        raise ValueError("bundle size limit exceeded")
                     digest.update(chunk)
+                if actual_size != file_size:
+                    raise ValueError("bundle changed during inspection")
     return digest.hexdigest()
-

@@ -1,4 +1,5 @@
 import json
+from unittest.mock import patch
 from common import Fixture
 
 class LifecycleTests(Fixture):
@@ -124,3 +125,44 @@ class LifecycleTests(Fixture):
         self.assertEqual(a["id"], b["id"])
         self.assertEqual(self.life.due(self.store, now=160)[0]["id"], a["id"])
 
+    def test_identical_content_from_different_sources_preserves_provenance(self):
+        path = self.skill()
+        a = self.life.install(self.store, path, origin="https://github.com/a/skill", revision="a" * 40)
+        b = self.life.install(self.store, path, origin="https://github.com/b/skill", revision="b" * 40)
+        self.assertNotEqual(a["id"], b["id"])
+        self.assertEqual(b["source"], "https://github.com/b/skill")
+
+    def test_install_metadata_matches_copied_snapshot_during_source_edit(self):
+        path = self.skill()
+        original = self.life.read_skill
+        def read_and_change_source(location):
+            info = original(location)
+            if location == path.resolve():
+                text = (path / "SKILL.md").read_text()
+                (path / "SKILL.md").write_text(text.replace("description:", "disable-model-invocation: true\ndescription:"))
+            return info
+        with patch.object(self.life, "read_skill", side_effect=read_and_change_source):
+            result = self.life.install(self.store, path)
+        copied = original(self.store.root / "packages" / result["id"])
+        self.assertEqual(result["implicit"], copied["implicit"])
+
+    def test_due_check_recovers_interrupted_archive_cleanup(self):
+        a = self.install()
+        with self.store.transaction() as state:
+            state["entries"][a["id"]]["status"] = "retired"
+        self.life.due(self.store, now=100)
+        self.assertFalse((self.store.root / "packages" / a["id"]).exists())
+        self.assertTrue((self.store.root / "archive" / a["id"]).exists())
+
+    def test_invalid_retired_bundle_does_not_block_other_sessions(self):
+        old, active = self.install(), self.install("still-needed")
+        self.life.load(self.store, active["id"], "live", now=10)
+        with self.store.transaction() as state:
+            state["entries"][old["id"]]["status"] = "retired"
+        original = self.store.root / "packages" / old["id"]
+        (original / "unexpected-link").symlink_to(self.base)
+        self.life.release(self.store, "live")
+        self.assertEqual(self.store.read()["uses"], {})
+        self.assertEqual(self.life.due(self.store, now=100)[0]["id"], active["id"])
+        self.assertEqual(self.life.cleanup(self.store)[0]["id"], old["id"])
+        self.assertTrue(original.exists())

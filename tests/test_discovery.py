@@ -68,3 +68,15 @@ class DiscoveryTests(Fixture):
             with self.assertRaises(ValueError):
                 github.validate_repository(repo)
 
+    def test_executable_resource_retains_only_safe_executable_permissions(self):
+        github = self.module("github")
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr("repo/SKILL.md", "---\nname: x\ndescription: X\n---")
+            info = zipfile.ZipInfo("repo/tool.sh")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFREG | 0o4755) << 16
+            archive.writestr(info, "#!/bin/sh\nexit 0\n")
+        target = self.base / "download"
+        github.extract_skill(data.getvalue(), "", target)
+        self.assertEqual((target / "tool.sh").stat().st_mode & 0o7777, 0o755)
