@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.skill-rover/
+.superpowers/
+*.egg-info/
+build/
+dist/
+.DS_Store
+

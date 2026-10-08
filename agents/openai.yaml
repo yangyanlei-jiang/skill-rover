@@ -1,0 +1,7 @@
+interface:
+  display_name: "SkillRover"
+  short_description: "Find suitable skills and reassess managed choices over time"
+  default_prompt: "Use $skill-rover to select suitable skills for this task and check any due reassessments."
+policy:
+  allow_implicit_invocation: true
+
