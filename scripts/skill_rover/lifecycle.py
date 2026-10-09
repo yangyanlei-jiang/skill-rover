@@ -10,6 +10,7 @@ from pathlib import Path
 from .catalog import SKIP, bundle_digest, read_skill
 
 DEFAULT_REVIEW_SECONDS = 86400
+_UNBOUND = object()
 
 def _now(now):
     value = time.time() if now is None else now
@@ -90,18 +91,25 @@ def install(store, source, origin=None, revision=None, review_seconds=DEFAULT_RE
             raise
         return dict(record)
 
-def load(store, identity, session, explicit=False, now=None):
+def load(store, identity, session, explicit=False, now=None, expected_check=_UNBOUND):
     now, session = _now(now), _text(session, "session")
     cleanup(store)
     with store.transaction() as state:
+        current = state.get("routing", {}).get(session, {})
+        if current.get("ended_at") is not None:
+            raise ValueError("session has ended")
+        if expected_check is not _UNBOUND and expected_check != current.get("check_id"):
+            raise ValueError("routing check changed before skill load")
         record = _checked(store, state, identity)
         if not record["implicit"] and not explicit:
             raise ValueError("skill requires explicit invocation")
         if record["loaded_at"] is None:
             record["loaded_at"] = now
+        record["last_used_at"] = now
         entries = state["uses"].setdefault(session, [])
         if identity not in entries:
             entries.append(identity)
+        state["history"].append({"action": "load", "id": identity, "session": session, "at": now})
         return {**record, "path": str(package_path(store, record) / "SKILL.md")}
 
 def release(store, session, identity=None):

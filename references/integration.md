@@ -21,20 +21,24 @@ Keep .skill-rover/ out of version control: it stores source locations, usage and
 
 | Event | Behavior |
 | --- | --- |
-| SessionStart | Supplies the actual session id and state path; adds a due reminder when applicable |
-| UserPromptSubmit | Checks review deadlines before a new user turn |
-| PostToolUse | Checks during ongoing work; replacement still waits for a safe boundary |
+| SessionStart | Supplies session id, helper argv, state path and automatic routing instructions |
+| UserPromptSubmit | Always requests a skill-needs decision, records a pending check and checks deadlines, even with an empty catalog |
+| PostToolUse | Reminds once per turn if routing is unrecorded, and checks due reviews; replacement waits for a safe boundary |
 | SessionEnd | Releases that session's usage records |
 
 Command hooks receive JSON on stdin and emit native hookSpecificOutput.additionalContext. Malformed input/errors are reported to stderr and fail open with {}. They do not run candidate content or perform replacement. They retry unfinished archival of already retired owned copies; damaged copies are preserved and reported by status/cleanup. Due reminders are throttled to once per five minutes per session; this throttle does not advance review deadlines.
 
 Review and trust the generated hook definitions in the host. Codex does not run untrusted project/plugin hooks simply because a skill is installed. If hooks are unsupported or disabled, the core skill still works, but deadline checking must be requested at task boundaries.
 
+Routing uses the host's semantic judgment, not a hook's keyword heuristic. The host uses `use` to enroll reviewed, authorized selections or `record-route` to explain none/blocked decisions. Prompt content is not stored. The five-minute due throttle never suppresses a new prompt's routing check. Duplicate delivery of a Codex `turn_id` does not reset a completed decision.
+
+For user-wide hooks without `--state-dir`, the helper uses the payload's absolute `cwd` to select that project's `.skill-rover`; explicit state takes precedence. Hooks/rules instruct the model to route automatically but do not forcibly execute its decisions. `status.routing` exposes unrecorded checks instead of claiming they succeeded.
+
 ## Instructions-only integration
 
-Install this root directory using your existing skill installer, then invoke the skill explicitly. To encourage implicit routing, you may add a concise project rule such as:
+Install this root directory using your existing skill installer. Automatic discovery is enabled; explicit invocation is a fallback. For hosts without prompt hooks, add a project rule such as:
 
-“Use skill-rover when choosing among overlapping skills, when a needed capability is missing, or when a managed review is due. Ordinary tasks do not require a skill.”
+“Before nontrivial multi-step tasks, complex debugging or specialized artifacts, use skill-rover to select suitable skills, even when a candidate is obvious. Register reviewed, authorized selections with its use helper. Simple questions may need no skill.”
 
 A prompt rule increases discoverability; it does not guarantee automatic activation or provide a background timer.
 

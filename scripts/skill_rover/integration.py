@@ -1,15 +1,32 @@
-"""Explicit project integration and bounded, side-effect-free review reminders."""
+"""Project integration, per-turn routing checks and bounded review reminders."""
 import base64
 import json
 import shlex
 import sys
 from pathlib import Path
 
-from .lifecycle import _now, cleanup, due_records, release
+from .lifecycle import _now, cleanup, due_records
 from .store import atomic_json
+from . import routing
 
 EVENTS = ("SessionStart", "UserPromptSubmit", "PostToolUse", "SessionEnd")
 NOTICE_SECONDS = 300
+ROUTING_CONTEXT = (
+    "Before acting on this request, assess its skill needs. For nontrivial multi-step work, "
+    "complex logic/debugging, specialized artifacts, overlapping skills or missing capabilities, "
+    "load the installed skill-rover skill and route the task even when one candidate seems obvious. "
+    "Prefer installed skills; search externally only for a demonstrated gap. "
+    "For reviewed, authorized selected skills, use rover.py use with --reviewed, --session and "
+    "--reason to enroll and load them before applying their workflow. This starts the review clock; "
+    "When a routing_check_id is supplied, pass it as --check-id to use and record-route; "
+    "do not use an old check to complete a new turn. "
+    "reading or natively invoking a skill alone is not tracked. Respect host invocation policies. "
+    "For a simple request needing no skill, record-route --decision none with --session and "
+    "--reason; do not search or enroll a skill just to fill the table. "
+    "When enrollment is unavailable or unauthorized, record-route --decision blocked and report "
+    "the limitation without claiming tracking started. Release managed usage at task completion. "
+    "Routing checks are not completed comparisons and do not reset review deadlines. "
+)
 
 def _handler(args, host, event):
     handler = {"type": "command", "timeout": 3 if event == "SessionEnd" else 10}
@@ -78,27 +95,44 @@ def hook(payload, store, now=None):
         raise ValueError("hook session_id is required")
     cleanup(store)
     if event == "SessionEnd":
-        release(store, session)
-        with store.transaction() as state:
-            state["notices"].pop(session, None)
+        routing.end(store, session, now=now)
         return {}
     context = ("SkillRover session_id (literal JSON): " + json.dumps(session) + "; state directory: "
-               + json.dumps(str(store.root)) + ". Use these exact values with managed load/release commands. ")
+               + json.dumps(str(store.root)) + ". Use these exact values with managed load/release commands. "
+               + "SkillRover helper argv (literal JSON): "
+               + json.dumps([sys.executable, "-B", str(Path(__file__).resolve().parents[1] / "rover.py"),
+                             "--state-dir", str(store.root)]) + ". Append the subcommand and its arguments. ")
+    current = None
+    if event == "SessionStart":
+        current = routing.start(store, session, now=now)
+    elif event == "UserPromptSubmit":
+        turn = payload.get("turn_id")
+        if turn is not None and (not isinstance(turn, str) or not turn):
+            raise ValueError("turn_id must be a non-empty string")
+        current = routing.begin(store, session, turn, now=now)
+    pending_route = event == "PostToolUse" and routing.remind_pending(store, session)
+    if pending_route:
+        current = store.read()["routing"][session]
+    if current and current.get("check_id"):
+        context += "SkillRover routing_check_id (literal JSON): " + json.dumps(current["check_id"]) + ". "
     with store.transaction() as state:
         due = due_records(state, now)
         last = state["notices"].get(session)
         remind = bool(due) and (last is None or not 0 <= now - last < NOTICE_SECONDS)
         if remind:
             state["notices"][session] = now
-    if not remind:
-        if event != "SessionStart":
-            return {}
-        return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context +
-                "Use skill-rover when specialized skill selection is unclear or a review is due. Simple tasks may need no skill."}}
     # No downloaded descriptions, prompts or instructions enter developer context.
-    text = context + ("SkillRover has managed skills due for reassessment. Load the installed skill-rover "
+    text = context
+    if event in ("SessionStart", "UserPromptSubmit"):
+        text += ROUTING_CONTEXT
+    elif pending_route:
+        text += "SkillRover routing for this turn is still unrecorded. " + ROUTING_CONTEXT
+    if remind:
+        text += ("SkillRover has managed skills due for reassessment. Load the installed skill-rover "
             "skill and run its due command for this project's state directory. Compare candidates "
             "against the current task, validate any replacement, and switch only at a safe task "
             "boundary after releasing usage. A reminder is not a completed review. "
             "If review cannot complete, keep the current skill and leave the review due.")
+    if text == context:
+        return {}
     return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": text}}

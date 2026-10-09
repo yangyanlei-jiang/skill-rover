@@ -1,6 +1,7 @@
 """Locked, atomic local state. Never silently reset corrupt state."""
 import copy
 import json
+import math
 import os
 import tempfile
 from contextlib import contextmanager
@@ -73,6 +74,26 @@ class Store:
                 raise ValueError("unsupported state schema")
             if not isinstance(state["history"], list) or not isinstance(state["notices"], dict):
                 raise ValueError("unsupported state schema")
+            if not isinstance(state.get("routing", {}), dict):
+                raise ValueError("unsupported routing state")
+            for item in state.get("routing", {}).values():
+                if (not isinstance(item, dict) or not isinstance(item.get("checks"), int)
+                        or isinstance(item["checks"], bool) or item["checks"] < 0):
+                    raise ValueError("invalid routing session state")
+                if "decision" in item and item["decision"] not in ("pending", "selected", "none", "blocked"):
+                    raise ValueError("invalid routing decision")
+                identities = item.get("selected_ids", [])
+                if not isinstance(identities, list) or any(not isinstance(identity, str) for identity in identities):
+                    raise ValueError("invalid routing selection")
+                for field in ("check_id", "turn_id", "reason"):
+                    if item.get(field) is not None and not isinstance(item[field], str):
+                        raise ValueError("invalid routing text field")
+                for field in ("checked_at", "decided_at", "ended_at"):
+                    value = item.get(field)
+                    if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value)):
+                        raise ValueError("invalid routing timestamp")
+                if "reminded" in item and not isinstance(item["reminded"], bool):
+                    raise ValueError("invalid routing reminder state")
             return state
         except (ValueError, KeyError, AttributeError) as exc:
             raise ValueError("invalid state; preserved for recovery: " + str(self.path)) from exc
@@ -89,4 +110,3 @@ class Store:
             yield state
             if state != before or not self.path.exists():
                 atomic_json(self.path, state)
-

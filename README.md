@@ -30,7 +30,9 @@ Use `--host codex` or `--host claude` for a single host. This explicit command i
 .venv/bin/python scripts/rover.py --state-dir /absolute/path/to/your-project/.skill-rover integrate --project /absolute/path/to/your-project --host both
 ```
 
-Invoke `$skill-rover` in Codex or `/skill-rover` in Claude Code. Example request: “Find and use the best available skill for extracting tables from these PDFs. Check any due reassessments.”
+After integration, describe the task normally: “Analyze the payment flow's concurrency issues and add tests.” Prompt hooks request routing for nontrivial multi-step work, complex debugging and specialized artifacts, even with an empty managed catalog. The agent checks installed skills first and uses external discovery for missing capabilities. Reviewed, authorized selections use the enrollment bridge to start tracking. Simple tasks may use no skill. Explicit `$skill-rover` (Codex) or `/skill-rover` (Claude Code) remains a fallback.
+
+Hooks supply instructions; the host model still judges and executes the workflow. `status` exposes pending routing checks, recorded decisions and next review times. Native invocation outside the managed protocol is not counted, so an empty managed table is not proof that no skill was used.
 
 The root `SKILL.md` can also be installed with your existing Agent Skills installer. Instructions-only use does not require Python. **Timed lifecycle helpers and event hooks require the Python setup above.**
 
@@ -72,6 +74,8 @@ Run `python scripts/rover.py --help`; every command emits JSON.
 | `search QUERY` | Search public GitHub repository candidates |
 | `fetch OWNER/REPO --ref REF --subdir PATH --output DIR` | Resolve an immutable commit and extract a skill for inspection |
 | `install DIR --reviewed` | Install an inspected, authorized owned copy |
+| `use DIR --reviewed --session SESSION --reason TEXT` | Enroll, load and record a selected skill in one operation |
+| `record-route --session SESSION --decision none\|blocked --reason TEXT` | Explain a turn without managed skill usage |
 | `load ID --session SESSION` | Return managed instructions and record usage |
 | `release --session SESSION [--id ID]` | Finish usage |
 | `due` / `status` | Read review deadlines or persisted state |

@@ -14,6 +14,27 @@ Keep the current skill while offline or uncertain. When the task changes or exec
 
 ## Install and use
 
+For a selected installed or inspected external skill, use the enrollment bridge. It performs install + load + routing registration; inspect the bundle/dependencies and have authorization before using `--reviewed`.
+
+```bash
+python scripts/rover.py --state-dir /project/.skill-rover use /reviewed/skill-folder --reviewed --session HOST_SESSION_ID --reason "Preserves the invoice's merged columns" --review-hours 24
+python scripts/rover.py --state-dir /project/.skill-rover release --session HOST_SESSION_ID --id MANAGED_ID
+```
+
+Apply the returned instructions and retain the returned id. Unchanged content from the same source reuses its id, load time and interval. Inspection, native invocation and installation alone do not start tracking. Do not backdate activity. Changed content creates a separate identity; superseding an existing role still requires validated replacement below.
+
+When hooks supply `routing_check_id`, add `--check-id THAT_VALUE` to `use` and `record-route`. The bridge snapshots the check at entry even without this argument. A newer turn cannot be marked complete by old work: stale registrations return `routing_recorded: false` or `recorded: false`, preserving a historical observation but leaving current routing pending. SessionEnd atomically closes the session and releases usage; late loads are rejected. A later SessionStart reopens it. Duplicate starts preserve a live check.
+
+For a task needing no skill, record the decision without installing anything:
+
+```bash
+python scripts/rover.py --state-dir /project/.skill-rover record-route --session HOST_SESSION_ID --decision none --reason "Simple factual question"
+```
+
+Use `--decision blocked` when selection/enrollment cannot complete, with its actual reason. This is an operational record, not a completed reassessment. A reason string does not prove semantic truth or authorization.
+
+The lower-level commands remain available:
+
 ```bash
 python scripts/rover.py --state-dir /project/.skill-rover install /reviewed/skill-folder --reviewed --review-hours 24
 python scripts/rover.py --state-dir /project/.skill-rover load MANAGED_ID --session HOST_SESSION_ID
@@ -27,6 +48,10 @@ Native disabled or explicit-only policies remain authoritative. --explicit is fo
 If a session crashed, confirm it has ended before releasing its id. Usage leases do not silently expire because a long-running task may still depend on a skill.
 
 ## Reassess
+
+`status` adds `summary` and `review_schedule` to the raw records. It distinguishes active owned packages, skills ever loaded through the helper, and skills currently in use. The schedule reports first/last load, next review (UTC Unix seconds), active sessions and due state. Unloaded installations have no deadline; released skills retain their schedule. An early review request can be due before the scheduled timestamp.
+
+Per-session `routing` shows check count and the last pending/selected/none/blocked decision. `history` records helper loads and decisions. Hooks do not store prompt content. These observations cover the managed protocol, not all native skill calls; missing registration cannot prove that no skill was invoked.
 
 1. Run due; inspect the current entry and its task context. If it is in use, compare candidates now but postpone switching.
 2. Compare installed alternatives first; use external discovery for a demonstrated gap or useful improvement.

@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import __version__, github, lifecycle
+from . import __version__, github, lifecycle, routing
 from .catalog import scan
 from .integration import hook, integrate
 from .store import Store
@@ -30,6 +30,21 @@ def parser():
     c.add_argument("--origin")
     c.add_argument("--revision")
     c.add_argument("--review-hours", type=float, default=24)
+    c = commands.add_parser("use", help="enroll a reviewed selected skill, load it and record the routing decision")
+    c.add_argument("source")
+    c.add_argument("--reviewed", action="store_true", required=True)
+    c.add_argument("--session", required=True)
+    c.add_argument("--reason", required=True)
+    c.add_argument("--check-id", help="bind registration to the routing check supplied by hooks")
+    c.add_argument("--origin")
+    c.add_argument("--revision")
+    c.add_argument("--review-hours", type=float, default=24)
+    c.add_argument("--explicit", action="store_true")
+    c = commands.add_parser("record-route", help="record why no managed skill was used for this turn")
+    c.add_argument("--session", required=True)
+    c.add_argument("--decision", choices=["none", "blocked"], required=True)
+    c.add_argument("--reason", required=True)
+    c.add_argument("--check-id", help="bind the decision to the routing check supplied by hooks")
     c = commands.add_parser("load", help="return instructions and record session usage")
     c.add_argument("id")
     c.add_argument("--session", required=True)
@@ -58,7 +73,20 @@ def parser():
     return p
 
 def dispatch(a):
+    payload = None
+    if a.command == "hook":
+        data = sys.stdin.read(1024 * 1024 + 1)
+        if len(data) > 1024 * 1024:
+            raise ValueError("hook input exceeds 1 MiB")
+        payload = json.loads(data)
+        if not isinstance(payload, dict):
+            raise ValueError("hook input must be an object")
     default_state = Path(a.project) / ".skill-rover" if a.command == "integrate" else Path(".skill-rover")
+    if payload is not None and not a.state_dir and "cwd" in payload:
+        cwd = payload["cwd"]
+        if not isinstance(cwd, str) or not Path(cwd).is_absolute():
+            raise ValueError("hook cwd must be an absolute path")
+        default_state = Path(cwd) / ".skill-rover"
     store = Store(a.state_dir or default_state)
     if a.command == "scan":
         return scan(a.roots)
@@ -68,6 +96,15 @@ def dispatch(a):
         return github.fetch(a.repository, a.ref, a.subdir, a.output)
     if a.command == "install":
         return lifecycle.install(store, a.source, a.origin, a.revision, a.review_hours * 3600)
+    if a.command == "use":
+        binding = {"check_id": a.check_id} if a.check_id is not None else {}
+        result = routing.use(store, a.source, a.session, a.reason, a.origin, a.revision,
+                             a.review_hours * 3600, explicit=a.explicit, **binding)
+        result["instructions"] = Path(result["path"]).read_text(encoding="utf-8")
+        return result
+    if a.command == "record-route":
+        binding = {"check_id": a.check_id} if a.check_id is not None else {}
+        return routing.record(store, a.session, a.decision, a.reason, **binding)
     if a.command == "load":
         result = lifecycle.load(store, a.id, a.session, explicit=a.explicit)
         result["instructions"] = Path(result["path"]).read_text(encoding="utf-8")
@@ -77,8 +114,7 @@ def dispatch(a):
     if a.command == "due":
         return lifecycle.due(store)
     if a.command == "status":
-        pending = lifecycle.cleanup(store)
-        return {**store.read(), "cleanup_pending": pending}
+        return routing.status(store)
     if a.command == "cleanup":
         return lifecycle.cleanup(store)
     if a.command == "mark-due":
@@ -92,10 +128,7 @@ def dispatch(a):
         hosts = ["codex", "claude"] if a.host == "both" else [a.host]
         return [integrate(a.project, h, store.root, Path(__file__).resolve().parents[2]) for h in hosts]
     if a.command == "hook":
-        data = sys.stdin.read(1024 * 1024 + 1)
-        if len(data) > 1024 * 1024:
-            raise ValueError("hook input exceeds 1 MiB")
-        return hook(json.loads(data), store)
+        return hook(payload, store)
     raise ValueError("unsupported command")
 
 def main():
